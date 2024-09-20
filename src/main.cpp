@@ -4,12 +4,20 @@
 
 /* Comment this out to disable prints and save space */
 #define BLYNK_PRINT Serial
+#define DHT_PIN 4
 
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
 #include <BlynkSimpleEsp32.h>
+#include <DHTesp.h>
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include <time.h>
+
+// Provide the token generation process info.
+#include "addons/TokenHelper.h"
+// Provide the RTDB payload printing info and other helper functions.
+#include "addons/RTDBHelper.h"
 
 // Define the pulse sensor settings
 const int pulsePin = 32; // the pulse sensor pin
@@ -24,47 +32,49 @@ char ssid[] = "What";
 char pass[] = "anything321";
 BlynkTimer timer;
 
-// Initialize the LCD
-LiquidCrystal_I2C lcd(0x27, 16, 2); // Set the LCD address to 0x27 for a 16 chars and 2 line display
+// Firebase configuration
+#define DATABASE_URL "https://smart-first-aid-4e3b8-default-rtdb.firebaseio.com/"
+#define API_KEY "AIzaSyAB6LZag9FmU2AEpEU3UuYXu5_feD6Z7ys"
+#define USER_EMAIL "esp32@gmail.com"
+#define USER_password "esp32user"
 
-// Function declaration
-void scanI2CDevices();
-
-void scanI2CDevices()
+// Define Firebase objects
+FirebaseData fbdo;
+FirebaseAuth firebaseAuth;
+FirebaseConfig firebaseConfig;
+DHTesp dht;
+// Function to configure NTP
+void configTimeForNTP()
 {
-  byte error, address;
-  int nDevices;
+  const char *ntpServer = "pool.ntp.org"; // NTP server
+  const long gmtOffset_sec = 6 * 3600;    // Adjust for GMT+6 (or your local timezone)
+  const int daylightOffset_sec = 0;       // Adjust for daylight saving time if applicable
 
-  Serial.println("Scanning for I2C devices...");
+  // Set up the NTP server for time synchronization
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-  nDevices = 0;
-  for (address = 1; address < 127; address++)
+  // Wait for time synchronization
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo))
   {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-
-    if (error == 0)
-    {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16)
-        Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.println("  !");
-
-      nDevices++;
-    }
-    else if (error == 4)
-    {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16)
-        Serial.print("0");
-      Serial.println(address, HEX);
-    }
+    Serial.println("Failed to obtain time");
+    return;
   }
-  if (nDevices == 0)
-    Serial.println("No I2C devices found\n");
-  else
-    Serial.println("done\n");
+  Serial.println(&timeinfo, "Time synchronized: %Y-%m-%d %H:%M:%S");
+}
+
+// Function to get current epoch time
+unsigned long getTime()
+{
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo))
+  {
+    Serial.println("Failed to get local time");
+    return 0;
+  }
+  time(&now);
+  return now;
 }
 
 void setup()
@@ -72,51 +82,72 @@ void setup()
   // Start the serial communication
   Serial.begin(115200);
 
-  // Initialize I2C
-  Wire.begin();
-
-  // Scan for I2C devices
-  scanI2CDevices();
-
-  // Initialize the LCD
-  lcd.init();
-  lcd.backlight();
-  lcd.print("Connecting...");
-
   // Connect to WiFi
   WiFi.begin(ssid, pass);
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
     Serial.println("Connecting to WiFi...");
-    lcd.setCursor(0, 1);
-    lcd.print(".");
   }
   Serial.println("Connected to WiFi");
-  lcd.clear();
-  lcd.print("WiFi Connected");
 
   // Connect to Blynk
   Blynk.begin(auth, ssid, pass);
   while (!Blynk.connected())
   {
     Serial.println("Connecting to Blynk...");
-    lcd.setCursor(0, 1);
-    lcd.print(".");
     delay(1000);
   }
   Serial.println("Connected to Blynk");
-  lcd.clear();
-  lcd.print("Blynk Connected");
 
   // Set up the pulse sensor
   pinMode(pulsePin, INPUT);
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
+  dht.setup(DHT_PIN, DHTesp::DHT11); // GPIO 4
+
+  // Configure NTP time synchronization
+  configTimeForNTP();
+
+  // Firebase configuration
+  firebaseConfig.api_key = API_KEY;
+  firebaseAuth.user.email = USER_EMAIL;
+  firebaseAuth.user.password = USER_password;
+  firebaseConfig.database_url = DATABASE_URL;
+  Firebase.reconnectWiFi(true);
+  fbdo.setResponseSize(4096);
+
+  // Set the token callback function
+  firebaseConfig.token_status_callback = tokenStatusCallback;
+  firebaseConfig.max_token_generation_retry = 5;
+
+  Firebase.begin(&firebaseConfig, &firebaseAuth);
 }
 
 void loop()
 {
+
+  // Get the current time
+  unsigned long timestamp = getTime();
+
+  // Read the temperature and humidity
+
+  delay(dht.getMinimumSamplingPeriod());
+
+  float humidity = dht.getHumidity();
+  float temperature = dht.getTemperature();
+
+  Serial.print("Temperature (C): ");
+  Serial.print(temperature, 1);
+  Serial.print("°C");
+  Serial.print("\tHumidity: ");
+  Serial.print(humidity, 1);
+  Serial.println("%");
+
+  // Send the temperature and humidity to Blynk
+  Blynk.virtualWrite(V1, temperature);
+  Blynk.virtualWrite(V2, humidity);
+
   // Read the pulse sensor value
   pulseValue = analogRead(pulsePin);
 
@@ -124,7 +155,7 @@ void loop()
   if (pulseValue > 600)
   {
     digitalWrite(ledPin, HIGH); // turn on the LED
-    delay(250);                 // wait for a short time
+    delay(200);                 // wait for a short time
     digitalWrite(ledPin, LOW);  // turn off the LED
     bpm = 60000 / pulseValue;   // calculate the heart rate in beats per minute
     Serial.print("Heart rate: ");
@@ -133,17 +164,33 @@ void loop()
 
     // Send the heart rate to Blynk
     Blynk.virtualWrite(V0, bpm);
-    delay(500);
+
+     // Create Firebase JSON object
+    FirebaseJson json;
+    json.set("/bpm", String(bpm));
+    json.set("/temperature", String(temperature));
+    json.set("/humidity", String(humidity));
+    json.set("/timestamp", String(timestamp));
+
+    // Send data to Firebase
+    String parentPath = "/ESP32Data/" + String(timestamp);
+    if (Firebase.ready())
+    {
+      if (Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json))
+      {
+        Serial.println("Data sent to Firebase");
+      }
+      else
+      {
+        Serial.println(fbdo.errorReason());
+      }
+    }
+
+    delay(300);
 
     // Print the heart rate on the serial monitor
     String message = "Heart rate: " + String(bpm) + " BPM";
     Serial.println(message);
-
-    // Display the heart rate on the LCD
-    lcd.clear();
-    lcd.print("Heart rate:");
-    lcd.setCursor(0, 1);
-    lcd.print(String(bpm) + " BPM");
   }
 
   // Run the Blynk loop
