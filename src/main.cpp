@@ -152,7 +152,7 @@ void loop()
   pulseValue = analogRead(pulsePin);
 
   // Detect the pulse
-  if (pulseValue > 600)
+  if (pulseValue > 300)
   {
     digitalWrite(ledPin, HIGH); // turn on the LED
     delay(200);                 // wait for a short time
