@@ -28,8 +28,8 @@ int bpm;                 // the heart rate in beats per minute
 // Your WiFi credentials.
 // Set password to "" for open networks.
 char auth[] = BLYNK_AUTH_TOKEN;
-char ssid[] = "What";
-char pass[] = "anything321";
+char ssid[] = "iPhone 14 Pro Max";
+char pass[] = "87654321";
 BlynkTimer timer;
 
 // Firebase configuration
@@ -165,7 +165,7 @@ void loop()
     // Send the heart rate to Blynk
     Blynk.virtualWrite(V0, bpm);
 
-     // Create Firebase JSON object
+    // Create Firebase JSON object
     FirebaseJson json;
     json.set("/bpm", String(bpm));
     json.set("/temperature", String(temperature));
