@@ -43,6 +43,7 @@ FirebaseData fbdo;
 FirebaseAuth firebaseAuth;
 FirebaseConfig firebaseConfig;
 DHTesp dht;
+
 // Function to configure NTP
 void configTimeForNTP()
 {
@@ -126,16 +127,27 @@ void setup()
 
 void loop()
 {
-
   // Get the current time
   unsigned long timestamp = getTime();
 
   // Read the temperature and humidity
-
   delay(dht.getMinimumSamplingPeriod());
 
   float humidity = dht.getHumidity();
   float temperature = dht.getTemperature();
+
+  // Validate temperature and humidity
+  if (temperature < 37 || temperature > 41)
+  {
+    Serial.println("Invalid temperature reading. Setting to default value.");
+    temperature = 37.0; // Set to default value
+  }
+
+  if (humidity < 20 || humidity > 80)
+  {
+    Serial.println("Invalid humidity reading. Setting to default value.");
+    humidity = 50.0; // Set to default value
+  }
 
   Serial.print("Temperature (C): ");
   Serial.print(temperature, 1);
@@ -158,6 +170,14 @@ void loop()
     delay(200);                 // wait for a short time
     digitalWrite(ledPin, LOW);  // turn off the LED
     bpm = 60000 / pulseValue;   // calculate the heart rate in beats per minute
+
+    // Validate bpm
+    if (bpm < 60 || bpm > 120)
+    {
+      Serial.println("Invalid BPM reading. Setting to default value.");
+      bpm = 75; // Set to default value
+    }
+
     Serial.print("Heart rate: ");
     Serial.print(bpm);
     Serial.println(" BPM");
