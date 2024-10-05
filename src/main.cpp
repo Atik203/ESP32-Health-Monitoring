@@ -13,6 +13,7 @@
 #include <WiFi.h>
 #include <Firebase_ESP_Client.h>
 #include <time.h>
+#include <ESP32Servo.h>
 
 // Provide the token generation process info.
 #include "addons/TokenHelper.h"
@@ -43,6 +44,16 @@ FirebaseData fbdo;
 FirebaseAuth firebaseAuth;
 FirebaseConfig firebaseConfig;
 DHTesp dht;
+
+// Define Servo objects and pins
+Servo servo1;
+Servo servo2;
+const int servoPin1 = 5; // Change to the actual pin connected to servo 1
+const int servoPin2 = 6; // Change to the actual pin connected to servo 2
+
+// Variables for manual control
+float manualTemperature = 0;
+int manualBPM = 0;
 
 // Function to configure NTP
 void configTimeForNTP()
@@ -78,6 +89,17 @@ unsigned long getTime()
   return now;
 }
 
+// Blynk virtual pin handlers
+BLYNK_WRITE(V3)
+{
+  manualTemperature = param.asFloat();
+}
+
+BLYNK_WRITE(V4)
+{
+  manualBPM = param.asInt();
+}
+
 void setup()
 {
   // Start the serial communication
@@ -107,6 +129,10 @@ void setup()
   digitalWrite(ledPin, LOW);
   dht.setup(DHT_PIN, DHTesp::DHT11); // GPIO 4
 
+  // Attach servos
+  servo1.attach(servoPin1);
+  servo2.attach(servoPin2);
+
   // Configure NTP time synchronization
   configTimeForNTP();
 
@@ -123,6 +149,27 @@ void setup()
   firebaseConfig.max_token_generation_retry = 5;
 
   Firebase.begin(&firebaseConfig, &firebaseAuth);
+}
+
+void controlServos(float temperature, int bpm)
+{
+  if (temperature > 39)
+  {
+    servo1.write(90); // Rotate servo 1 to 90 degrees
+  }
+  else
+  {
+    servo1.write(0); // Reset servo 1 to 0 degrees
+  }
+
+  if (bpm > 100)
+  {
+    servo2.write(90); // Rotate servo 2 to 90 degrees
+  }
+  else
+  {
+    servo2.write(0); // Reset servo 2 to 0 degrees
+  }
 }
 
 void loop()
@@ -212,6 +259,9 @@ void loop()
     String message = "Heart rate: " + String(bpm) + " BPM";
     Serial.println(message);
   }
+
+  // Control servos based on manual and sensor values
+  controlServos(manualTemperature > 0 ? manualTemperature : temperature, manualBPM > 0 ? manualBPM : bpm);
 
   // Run the Blynk loop
   Blynk.run();
